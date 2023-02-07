@@ -1,7 +1,9 @@
 <launch>
 
   <node name="gnss_odom_node" pkg="gnss_odom" type="gnss_odom" output="screen">
-    <remap from="odom"      to="gnss/odom"/>
+    <param name="cmd_vel_topic" value="husky_velocity_controller/cmd_vel" />
+    <param name="cmd_vel_topic" value="fix" />
+    <param name="odom_pub_topic" value="gnss/odom" />
   </node>
 
 </launch>

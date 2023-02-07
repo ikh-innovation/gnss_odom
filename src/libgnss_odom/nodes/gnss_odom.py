@@ -112,8 +112,12 @@ def main():
     prev_fix = None
     prev_cmd = None
     
-    odom_pub = rospy.Publisher('odom', Odometry, queue_size=1)
-    cmd_vel_sub = rospy.Subscriber('husky_velocity_controller/cmd_vel', Twist, storeCmdVel, (prev_cmd))
-    fix_sub = rospy.Subscriber('fix', NavSatFix, computeOdom, (prev_fix, prev_cmd, odom_pub))
+    cmd_vel_topic = rospy.get_param('~cmd_vel_topic', "husky_velocity_controller/cmd_vel")
+    fix_topic = rospy.get_param('~cmd_vel_topic', "fix")
+    odom_pub_topic = rospy.get_param('~odom_pub_topic', "gnss/odom")
+
+    odom_pub = rospy.Publisher(odom_pub_topic, Odometry, queue_size=1)
+    cmd_vel_sub = rospy.Subscriber(cmd_vel_topic, Twist, storeCmdVel, (prev_cmd))
+    fix_sub = rospy.Subscriber(fix_topic, NavSatFix, computeOdom, (prev_fix, prev_cmd, odom_pub))
 
     rospy.spin()
