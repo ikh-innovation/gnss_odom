@@ -113,7 +113,7 @@ def main():
     prev_cmd = None
     
     cmd_vel_topic = rospy.get_param('~cmd_vel_topic', "husky_velocity_controller/cmd_vel")
-    fix_topic = rospy.get_param('~cmd_vel_topic', "fix")
+    fix_topic = rospy.get_param('~fix_topic', "gnss/fix")
     odom_pub_topic = rospy.get_param('~odom_pub_topic', "gnss/odom")
 
     odom_pub = rospy.Publisher(odom_pub_topic, Odometry, queue_size=1)
