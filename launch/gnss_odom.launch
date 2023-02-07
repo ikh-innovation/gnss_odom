@@ -1,0 +1,7 @@
+<launch>
+
+  <node name="gnss_odom_node" pkg="gnss_odom" type="gnss_odom" output="screen">
+    <remap from="odom"      to="gnss/odom"/>
+  </node>
+
+</launch>
