@@ -14,6 +14,9 @@ from geometry_msgs.msg import Twist
 
 linear_x_speed_threshold = 0.03
 
+prev_fix = None
+prev_cmd = None
+
 """
     Quaternion computation with float and uncertanties
 """
@@ -42,9 +45,7 @@ def quaternion_from_euler(roll = un.ufloat(0.0, 0.0), pitch = un.ufloat(0.0, 0.0
     return q 
 
 def computeOdom(fix_data, args):
-    prev_fix = args[0]
-    prev_cmd = args[1]
-    odom_pub = args[2]
+    odom_pub = args[0]
 
     # Takes into account previous fix and las cmd_vel stored
     if prev_fix is not None and prev_cmd is not None:
@@ -97,8 +98,8 @@ def computeOdom(fix_data, args):
 
     prev_fix = fix_data
 
-def storeCmdVel(cmd_data, args):
-    args[0] = cmd_data
+def storeCmdVel(cmd_data):
+    prev_cmd = cmd_data
 
 def main():
     """
@@ -108,16 +109,13 @@ def main():
     """
 
     rospy.init_node('gnss_odom')
-
-    prev_fix = None
-    prev_cmd = None
     
     cmd_vel_topic = rospy.get_param('~cmd_vel_topic', "husky_velocity_controller/cmd_vel")
     fix_topic = rospy.get_param('~fix_topic', "gnss/fix")
     odom_pub_topic = rospy.get_param('~odom_pub_topic', "gnss/odom")
 
     odom_pub = rospy.Publisher(odom_pub_topic, Odometry, queue_size=1)
-    cmd_vel_sub = rospy.Subscriber(cmd_vel_topic, Twist, storeCmdVel, (prev_cmd))
-    fix_sub = rospy.Subscriber(fix_topic, NavSatFix, computeOdom, (prev_fix, prev_cmd, odom_pub))
+    cmd_vel_sub = rospy.Subscriber(cmd_vel_topic, Twist, storeCmdVel)
+    fix_sub = rospy.Subscriber(fix_topic, NavSatFix, computeOdom, (odom_pub))
 
     rospy.spin()
