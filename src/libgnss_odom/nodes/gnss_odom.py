@@ -97,19 +97,28 @@ class GNSSOdometry:
         self.prev_fix = fix_data
 
     def compute_odom_from_odometry(self, odom_data):
-        if self.prev_odom is not None:
-            heading = math.atan2(odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y,
-                                 odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x)
+        if self.prev_odom is not None and self.prev_cmd is not None:
             
-            q = Quaternion.from_euler(0.0, 0.0, heading)
+            if self.prev_cmd.linear.x >= self.velocity_threshold:
+                
+                # Compute distance moved
+                dx = odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x
+                dy = odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y
+                distance = math.sqrt(dx**2 + dy**2)
             
-            odom_data.pose.pose.orientation.x = q.x
-            odom_data.pose.pose.orientation.y = q.y
-            odom_data.pose.pose.orientation.z = q.z
-            odom_data.pose.pose.orientation.w = q.w
-            odom_data.pose.covariance[35] = self.initial_covariance
+                if (distance >= self.distance_threshold):
             
-            self.odom_pub.publish(odom_data)
+                    heading = math.atan2(dy, dx)
+                    
+                    q = Quaternion.from_euler(0.0, 0.0, heading)
+                    
+                    odom_data.pose.pose.orientation.x = q.x
+                    odom_data.pose.pose.orientation.y = q.y
+                    odom_data.pose.pose.orientation.z = q.z
+                    odom_data.pose.pose.orientation.w = q.w
+                    # odom_data.pose.covariance[35] = self.initial_covariance
+                    
+                    self.odom_pub.publish(odom_data)
 
         self.prev_odom = odom_data
 
