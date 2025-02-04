@@ -12,24 +12,22 @@ class Quaternion:
         self.x = un.ufloat(x, 0.0)
         self.y = un.ufloat(y, 0.0)
         self.z = un.ufloat(z, 0.0)
+    @staticmethod
+    def from_euler(roll=un.ufloat(0.0, 0.0), pitch=un.ufloat(0.0, 0.0), yaw=un.ufloat(0.0, 0.0)):
+        cy = un.cos(yaw * 0.5)
+        sy = un.sin(yaw * 0.5)
+        cp = un.cos(pitch * 0.5)
+        sp = un.sin(pitch * 0.5)
+        cr = un.cos(roll * 0.5)
+        sr = un.sin(roll * 0.5)
 
-def quaternion_from_euler(roll, pitch, yaw):
-    """
-    Converts euler roll, pitch, yaw to quaternion considering uncertainties.
-    """
-    cy = un.cos(yaw * 0.5)
-    sy = un.sin(yaw * 0.5)
-    cp = un.cos(pitch * 0.5)
-    sp = un.sin(pitch * 0.5)
-    cr = un.cos(roll * 0.5)
-    sr = un.sin(roll * 0.5)
-
-    return Quaternion(
-        w=cy * cp * cr + sy * sp * sr,
-        x=cy * cp * sr - sy * sp * cr,
-        y=sy * cp * sr + cy * sp * cr,
-        z=sy * cp * cr - cy * sp * sr
-    )
+        q = Quaternion()
+        q.w = cy * cp * cr + sy * sp * sr
+        q.x = cy * cp * sr - sy * sp * cr
+        q.y = sy * cp * sr + cy * sp * cr
+        q.z = sy * cp * cr - cy * sp * sr
+        return q
+    
 
 class GNSSOdometry:
     def __init__(self):
