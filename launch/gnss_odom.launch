@@ -1,9 +1,11 @@
 <launch>
 
   <node name="gnss_odom_node" pkg="gnss_odom" type="gnss_odom" output="screen">
-    <param name="cmd_vel_topic" value="husky_velocity_controller/cmd_vel" />
-    <param name="cmd_vel_topic" value="fix" />
-    <param name="odom_pub_topic" value="gnss/odom" />
+    <param name="cmd_vel_topic" value="/aristos/wheel/cmd_vel" />
+    <param name="fix_topic" value="/aristos/filter/positionlla/gnss" />
+    <param name="odom_pub_topic" value="gnss_headireqng/odom" />
+    <param name="velocity_threshold" value="0.1"/>
+    <param name="heading_offset" value="1.57"/>
   </node>
 
 </launch>
