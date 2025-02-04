@@ -1,5 +1,6 @@
 import rospy
 import math
+from pyproj import Geod
 
 from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import Odometry
@@ -34,12 +35,14 @@ class GNSSOdometry:
         
         self.use_odometry = rospy.get_param('~use_odometry', False)
         self.velocity_threshold = rospy.get_param('~velocity_threshold', 0.03)
-        self.distance_threshold = rospy.get_param('~distance_threshold', 0.5)  # Added distance threshold
+        self.distance_threshold = rospy.get_param('~distance_threshold', 0.5)
         self.initial_covariance = rospy.get_param('~initial_covariance', 0.1)
 
         self.prev_fix = None
         self.prev_cmd = None
         self.prev_odom = None
+        
+        self.geod = Geod(ellps='WGS84')
 
         self.odom_pub = rospy.Publisher(
             rospy.get_param('~odom_pub_topic', 'gnss/odom'),
@@ -67,34 +70,16 @@ class GNSSOdometry:
             )
 
     def store_cmd_vel(self, cmd_data):
-        """Stores the last received velocity command."""
         self.prev_cmd = cmd_data
 
-    def haversine_distance(self, lat1, lon1, lat2, lon2):
-        """Computes the distance between two latitude-longitude points using the Haversine formula."""
-        R = 6371000  # Earth radius in meters
-        phi1, phi2 = math.radians(lat1), math.radians(lat2)
-        dphi = math.radians(lat2 - lat1)
-        dlambda = math.radians(lon2 - lon1)
-
-        a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-        return R * c
-
     def compute_odom_from_gnss(self, fix_data):
-        """Computes and publishes odometry data from GNSS readings."""
         if self.prev_fix is not None and self.prev_cmd is not None:
             if self.prev_cmd.linear.x >= self.velocity_threshold:
-                distance = self.haversine_distance(
-                    self.prev_fix.latitude, self.prev_fix.longitude,
-                    fix_data.latitude, fix_data.longitude
-                )
-                
+                heading, _, distance = self.geod.inv( self.prev_fix.longitude, self.prev_fix.latitude, fix_data.longitude, fix_data.latitude)
+
                 if distance >= self.distance_threshold:
-                    X = math.cos(math.radians(fix_data.latitude)) * math.sin(math.radians(self.prev_fix.longitude - fix_data.longitude))
-                    Y = math.cos(math.radians(self.prev_fix.latitude)) * math.sin(math.radians(fix_data.latitude)) - math.sin(math.radians(self.prev_fix.latitude)) * math.cos(math.radians(fix_data.latitude)) * math.cos(math.radians(self.prev_fix.longitude - fix_data.longitude))
-                    heading = math.atan2(X, Y)
+
+                    heading = math.radians(heading)
 
                     q = Quaternion.from_euler(0.0, 0.0, heading)
                     
@@ -112,7 +97,6 @@ class GNSSOdometry:
         self.prev_fix = fix_data
 
     def compute_odom_from_odometry(self, odom_data):
-        """Computes heading from odometry readings."""
         if self.prev_odom is not None:
             heading = math.atan2(odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y,
                                  odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x)
