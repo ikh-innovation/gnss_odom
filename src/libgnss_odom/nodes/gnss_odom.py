@@ -1,34 +1,21 @@
-"""Gets GNSS lat/lon data and publishes heading and speed of robot in UTM frame."""
-
-import serial
-import sys
-
+import rospy
 import uncertainties as un
 import math
-
-import rospy
 
 from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 
-linear_x_speed_threshold = 0.03
-
-prev_fix = None
-prev_cmd = None
-
-"""
-    Quaternion computation with float and uncertanties
-"""
 class Quaternion:
-    w: un.ufloat(0.0, 0.0)
-    x: un.ufloat(0.0, 0.0)
-    y: un.ufloat(0.0, 0.0)
-    z: un.ufloat(0.0, 0.0)
+    def __init__(self, w=0.0, x=0.0, y=0.0, z=0.0):
+        self.w = un.ufloat(w, 0.0)
+        self.x = un.ufloat(x, 0.0)
+        self.y = un.ufloat(y, 0.0)
+        self.z = un.ufloat(z, 0.0)
 
-def quaternion_from_euler(roll = un.ufloat(0.0, 0.0), pitch = un.ufloat(0.0, 0.0), yaw = un.ufloat(0.0, 0.0)):
+def quaternion_from_euler(roll, pitch, yaw):
     """
-    Converts euler roll, pitch, yaw to quaternion taking into account uncetanties
+    Converts euler roll, pitch, yaw to quaternion considering uncertainties.
     """
     cy = un.cos(yaw * 0.5)
     sy = un.sin(yaw * 0.5)
@@ -37,85 +24,80 @@ def quaternion_from_euler(roll = un.ufloat(0.0, 0.0), pitch = un.ufloat(0.0, 0.0
     cr = un.cos(roll * 0.5)
     sr = un.sin(roll * 0.5)
 
-    q = Quaternion()
-    q.w = cy * cp * cr + sy * sp * sr
-    q.x = cy * cp * sr - sy * sp * cr
-    q.y = sy * cp * sr + cy * sp * cr
-    q.z = sy * cp * cr - cy * sp * sr
-    return q 
+    return Quaternion(
+        w=cy * cp * cr + sy * sp * sr,
+        x=cy * cp * sr - sy * sp * cr,
+        y=sy * cp * sr + cy * sp * cr,
+        z=sy * cp * cr - cy * sp * sr
+    )
 
-def computeOdom(fix_data, args):
-    odom_pub = args[0]
+class GNSSOdometry:
+    def __init__(self):
+        rospy.init_node('gnss_odom', anonymous=True)
+        
+        self.velocity_threshold = rospy.get_param('~velocity_threshold', 0.03)
+        self.initial_covariance = rospy.get_param('~initial_covariance', 0.1)
 
-    # Takes into account previous fix and las cmd_vel stored
-    if prev_fix is not None and prev_cmd is not None:
+        self.prev_fix = None
+        self.prev_cmd = None
 
-        # To be valid needs a linear speed higher than configured threshold
-        if prev_cmd.linear.x >= linear_x_speed_threshold:
-            # Create variables with uncertanties
-            current_lon = un.ufloat(fix_data.longitude, fix_data.position_covariance[0])
-            current_lat = un.ufloat(fix_data.latitude, fix_data.position_covariance[4])
+        self.odom_pub = rospy.Publisher(
+            rospy.get_param('~odom_pub_topic', 'gnss/odom'),
+            Odometry,
+            queue_size=1
+        )
 
-            prev_lon = un.ufloat(prev_fix.longitude, prev_fix.position_covariance[0])
-            prev_lat = un.ufloat(prev_fix.latitude, prev_fix.position_covariance[4])
+        rospy.Subscriber(
+            rospy.get_param('~cmd_vel_topic', 'husky_velocity_controller/cmd_vel'),
+            Twist,
+            self.store_cmd_vel
+        )
+        
+        rospy.Subscriber(
+            rospy.get_param('~fix_topic', 'gnss/fix'),
+            NavSatFix,
+            self.compute_odom
+        )
 
-            ## From https://www.igismap.com/formula-to-find-bearing-or-heading-angle-between-two-points-latitude-longitude/
-            # Bearing from point A to B, can be calculated as,
-            # β = atan2(X,Y),
-            # where, X and Y are two quantities and can be calculated as:
-            # X = cos θb * sin ∆L
-            # Y = cos θa * sin θb – sin θa * cos θb * cos ∆L
+    def store_cmd_vel(self, cmd_data):
+        """Stores the last received velocity command."""
+        self.prev_cmd = cmd_data
 
-            X = un.cos(current_lat) * un.sin(prev_lon - current_lon)
-            Y = un.cos(prev_lat) * un.sin(current_lat) - un.sin(prev_lon) * un.cos(current_lat) * un.cos(prev_lon - current_lon)
-            heading = un.atan2(X,Y)
+    def compute_odom(self, fix_data):
+        """Computes and publishes odometry data from GNSS readings."""
+        if self.prev_fix is not None and self.prev_cmd is not None:
+            if self.prev_cmd.linear.x >= self.velocity_threshold:
+                # Create variables with uncertainties
+                current_lon = un.ufloat(fix_data.longitude, self.initial_covariance)
+                current_lat = un.ufloat(fix_data.latitude, self.initial_covariance)
+                prev_lon = un.ufloat(self.prev_fix.longitude, self.initial_covariance)
+                prev_lat = un.ufloat(self.prev_fix.latitude, self.initial_covariance)
+                
+                # Compute heading angle
+                X = un.cos(current_lat) * un.sin(prev_lon - current_lon)
+                Y = un.cos(prev_lat) * un.sin(current_lat) - un.sin(prev_lat) * un.cos(current_lat) * un.cos(prev_lon - current_lon)
+                heading = un.atan2(X, Y)
 
-            ## Make use of cmd_vel instead
-            ## Speed to filter headings
-            # current_stamp = fix_data.heading.stamp.sec + fix_data.heading.stamp.nsec * math.pow(10.0,-9.0)
-            # prev_stamp = prev_fix.heading.stamp.sec + prev_fix.heading.stamp.nsec * math.pow(10.0,-9.0)
-            # time_diff = current_stamp - prev_stamp
+                # Convert heading to quaternion
+                q = quaternion_from_euler(un.ufloat(0.0, 0.0), un.ufloat(0.0, 0.0), heading)
+                
+                # Publish Odometry message
+                current_odom = Odometry()
+                current_odom.header.stamp = fix_data.header.stamp
+                current_odom.header.frame_id = fix_data.header.frame_id
+                current_odom.pose.pose.orientation.x = q.x.nominal_value
+                current_odom.pose.pose.orientation.y = q.y.nominal_value
+                current_odom.pose.pose.orientation.z = q.z.nominal_value
+                current_odom.pose.pose.orientation.w = q.w.nominal_value
+                current_odom.pose.covariance[35] = heading.std_dev
+                
+                self.odom_pub.publish(current_odom)
 
-            # distance = un.sqrt(un.pow((current_lon - prev_lon),2) + un.pow((current_lat - prev_lat),2))
-            # speed = distance / time_diff # angle / second
-            
-            ## Odometry message to be published
-            current_odom = Odometry()
+        self.prev_fix = fix_data
 
-            current_odom.header.stamp = fix_data.header.stamp
-            current_odom.header.frame_id = fix_data.header.frame_id
+    def run(self):
+        rospy.spin()
 
-            q = quaternion_from_euler(un.ufloat(0.0, 0.0), un.ufloat(0.0, 0.0), heading)
-            current_odom.pose.pose.orientation.x = q.x.nominal_value
-            current_odom.pose.pose.orientation.y = q.y.nominal_value
-            current_odom.pose.pose.orientation.z = q.z.nominal_value
-            current_odom.pose.pose.orientation.w = q.w.nominal_value
-
-            # Last component of the 6x6 matrix is the rotation around Z axis
-            current_odom.pose.covariance[35] = heading.std_dev
-            
-            odom_pub.publish(current_odom)
-
-    prev_fix = fix_data
-
-def storeCmdVel(cmd_data):
-    prev_cmd = cmd_data
-
-def main():
-    """
-    Create and run the nmea_serial_driver ROS node.
-
-    Create publisher an subscriber for input/output data
-    """
-
-    rospy.init_node('gnss_odom')
-    
-    cmd_vel_topic = rospy.get_param('~cmd_vel_topic', "husky_velocity_controller/cmd_vel")
-    fix_topic = rospy.get_param('~fix_topic', "gnss/fix")
-    odom_pub_topic = rospy.get_param('~odom_pub_topic', "gnss/odom")
-
-    odom_pub = rospy.Publisher(odom_pub_topic, Odometry, queue_size=1)
-    cmd_vel_sub = rospy.Subscriber(cmd_vel_topic, Twist, storeCmdVel)
-    fix_sub = rospy.Subscriber(fix_topic, NavSatFix, computeOdom, (odom_pub))
-
-    rospy.spin()
+if __name__ == '__main__':
+    gnss_odom = GNSSOdometry()
+    gnss_odom.run()
