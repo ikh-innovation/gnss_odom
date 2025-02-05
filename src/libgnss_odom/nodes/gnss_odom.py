@@ -121,7 +121,7 @@ class GNSSOdometry:
                         )
                         self.fit_points.append((x, y))
                         if len(self.fit_points)>self.num_fit_points:
-                            self.num_fit_points.pop(0)
+                            self.fit_points.pop(0)
                             heading, covariance = self.compute_fitted_heading()
                             
                             
