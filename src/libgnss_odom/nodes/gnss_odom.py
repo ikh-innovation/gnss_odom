@@ -83,27 +83,51 @@ class GNSSOdometry:
         self.prev_cmd = cmd_data
 
     def compute_fitted_heading(self):
-        """Computes heading using least squares line fitting and calculates deviation-based covariance"""
+        """Compute heading using line fitting and determine the correct direction."""
         if len(self.fit_points) < 2:
             self.fit_points = []
             return None, self.initial_covariance
 
+        # Extract x and y coordinates
         x_vals = np.array([p[0] for p in self.fit_points])
         y_vals = np.array([p[1] for p in self.fit_points])
 
-        self.fit_points = []
-        
+        # ----- Least Squares Fitting -----
         A = np.vstack([x_vals, np.ones(len(x_vals))]).T
         m, b = np.linalg.lstsq(A, y_vals, rcond=None)[0]  # Solve y = mx + b
+        heading = math.atan(m)  # Convert slope to angle
 
-        heading = math.atan(m)
-
-        # Compute deviation (residuals)
-        y_fitted = m * x_vals + b
-        err = y_vals - y_fitted
-        covariance = np.var(err) if len(err) > 1 else self.initial_covariance
+        # ----- Compute Direction Correction -----
+        x_first, y_first = self.fit_points[0]
+        x_last, y_last = self.fit_points[-1]
+        self.fit_points = []
         
-        return heading, covariance
+        dx = x_last - x_first
+        dy = y_last - y_first
+
+        
+        # Compute the direction angle (atan2 gives correct quadrant)
+        direction_angle = math.atan2(dy, dx)
+
+        # Determine if the heading needs to be flipped
+        # if self.prev_cmd.linear.x < 0:  # Robot moving backward
+        #     heading += math.pi  # Flip direction by 180 degrees
+
+        # Keep heading within [-pi, pi]
+        # heading = (heading + math.pi) % (2 * math.pi) - math.pi
+
+        # Compute deviation-based covariance
+        y_predicted = m * x_vals + b
+        residuals = y_vals - y_predicted
+        covariance = np.var(residuals) if len(residuals) > 1 else self.initial_covariance
+
+        
+        # print("Fitted Heading: {}".format(math.degrees(heading)))
+        # print("Direction Angle (atan2): {}".format(math.degrees(direction_angle)))
+        # print("Velocity: {} (Flipped: {})".format(self.prev_cmd.linear.x, self.prev_cmd.linear.x < 0))
+        # print("Residual covariance: {}".format(covariance))
+        
+        return heading,covariance
 
 
     def compute_odom_from_gnss(self, fix_data):
@@ -123,11 +147,12 @@ class GNSSOdometry:
                         if len(self.fit_points)>self.num_fit_points:
                             self.fit_points.pop(0)
                             heading, covariance = self.compute_fitted_heading()
-                            
-                            
+                            print("TAKIS")
                     else:
                         heading = math.radians(heading_)
                         covariance = self.initial_covariance
+
+                    print("PRINT")
                     if (heading != None):
                         print("Heading: {} | Cov: {}".format(heading,covariance))
                         q = Quaternion.from_euler(0.0, 0.0, heading+self.heading_offset)
@@ -163,14 +188,14 @@ class GNSSOdometry:
                     if (self.use_fitted_heading):
                         self.fit_points.append((odom_data.pose.pose.position.x, odom_data.pose.pose.position.y))
                         if len(self.fit_points) > self.num_fit_points:
-                            self.fit_points.pop(0)
                             heading, covariance = self.compute_fitted_heading()
-                            
+
                     else:
                         heading = math.atan2(dy, dx)
                         covariance = self.initial_covariance
                     
                     if heading!=None :
+                        
                         print("Heading: {} | Cov: {}".format(heading,covariance))
                         q = Quaternion.from_euler(0.0, 0.0, heading+self.heading_offset)
                         
