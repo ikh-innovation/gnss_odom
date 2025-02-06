@@ -83,7 +83,7 @@ class GNSSOdometry:
         self.prev_cmd = cmd_data
 
     def compute_fitted_heading(self):
-        """Compute heading using line fitting and determine the correct direction."""
+        """Compute heading using line fitting and correct it based on robot motion."""
         if len(self.fit_points) < 2:
             self.fit_points = []
             return None, self.initial_covariance
@@ -95,40 +95,37 @@ class GNSSOdometry:
         # ----- Least Squares Fitting -----
         A = np.vstack([x_vals, np.ones(len(x_vals))]).T
         m, b = np.linalg.lstsq(A, y_vals, rcond=None)[0]  # Solve y = mx + b
-        heading = math.atan(m)  # Convert slope to angle
+        fitted_heading = math.atan(m)  # Convert slope to angle
 
-        # ----- Compute Direction Correction -----
-        x_first, y_first = self.fit_points[0]
-        x_last, y_last = self.fit_points[-1]
-        self.fit_points = []
-        
-        dx = x_last - x_first
-        dy = y_last - y_first
-
-        
-        # Compute the direction angle (atan2 gives correct quadrant)
-        direction_angle = math.atan2(dy, dx)
-
-        # Determine if the heading needs to be flipped
-        # if self.prev_cmd.linear.x < 0:  # Robot moving backward
-        #     heading += math.pi  # Flip direction by 180 degrees
-
-        # Keep heading within [-pi, pi]
-        # heading = (heading + math.pi) % (2 * math.pi) - math.pi
-
-        # Compute deviation-based covariance
+        # ----- Compute Residuals for Covariance -----
         y_predicted = m * x_vals + b
         residuals = y_vals - y_predicted
         covariance = np.var(residuals) if len(residuals) > 1 else self.initial_covariance
 
-        
-        # print("Fitted Heading: {}".format(math.degrees(heading)))
-        # print("Direction Angle (atan2): {}".format(math.degrees(direction_angle)))
-        # print("Velocity: {} (Flipped: {})".format(self.prev_cmd.linear.x, self.prev_cmd.linear.x < 0))
-        # print("Residual covariance: {}".format(covariance))
-        
-        return heading,covariance
+        # ----- Correct Heading Based on Robot Motion -----
+        # Determine the direction of motion using the first and last points
+        x_first, y_first = self.fit_points[0]
+        x_last, y_last = self.fit_points[-1]
+        dx = x_last - x_first
+        dy = y_last - y_first
 
+        # Compute the displacement angle
+        displacement_angle = math.atan2(dy, dx)
+
+        # Check if the fitted heading aligns with the displacement direction
+        angle_diff = abs(fitted_heading - displacement_angle)
+        if angle_diff > math.pi / 2:  # Fitted heading is opposite to displacement direction
+            fitted_heading += math.pi  # Flip by 180 degrees
+
+        # Apply velocity sign correction
+        if self.prev_cmd.linear.x < 0:  # Robot moving backward
+            fitted_heading += math.pi  # Flip by 180 degrees
+
+        # Wrap heading to [-pi, pi]
+        fitted_heading = (fitted_heading + math.pi) % (2 * math.pi) - math.pi
+        self.fit_points = []
+
+        return fitted_heading, covariance
 
     def compute_odom_from_gnss(self, fix_data):
         print("Fit point list len: {}".format(len(self.fit_points)))
