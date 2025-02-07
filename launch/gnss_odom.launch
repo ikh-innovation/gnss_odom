@@ -6,9 +6,12 @@
     <param name="odom_topic" value="/aristos/odometry/gps/onlyRTK"/>
     <param name="odom_pub_topic" value="gnss_heading/odom" />
     <param name="use_odometry" value="true"/>
-    <param name="velocity_threshold" value="0.1"/>
-    <param name="distance_threshold" value="0.075"/>
+    <param name="velocity_threshold" value="0.2"/>
+    <param name="distance_threshold" value="0.05"/>
     <param name="heading_offset" value="0.0"/>
+    <param name="use_fitted_heading" value="true"/>
+    <param name="num_fit_points" value="4"/>
+    <param name="gnss_ellipsoid" value="WGS84"/> <!--pyproj supported ellipsoids-->
   </node>
 
 </launch>
