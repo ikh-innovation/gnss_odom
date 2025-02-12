@@ -5,6 +5,7 @@ from pyproj import Geod
 from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
+from collections import deque
 
 class Quaternion:
     def __init__(self, w=0.0, x=0.0, y=0.0, z=0.0):
@@ -42,6 +43,7 @@ class GNSSOdometry:
         self.prev_fix = None
         self.prev_cmd = None
         self.prev_odom = None
+        self.last_published_time = rospy.get_time()
         
         # Line fitting feature
         self.use_fitted_heading = rospy.get_param('~use_fitted_heading', False)
@@ -49,8 +51,10 @@ class GNSSOdometry:
         if (self.num_fit_points<3):
             self.num_fit_points = 2
             rospy.logwarn("Default number of fit points set: {}".format())
+
+        self.timeout = rospy.get_param('~timeout', self.num_fit_points*1.0/5.0 + 1) #num_points*topic_hz + 1
         
-        self.fit_points = [] 
+        self.fit_points = deque(maxlen=self.num_fit_points) 
         
         self.geod = Geod(ellps=self.gnss_ellipsoid)
 
@@ -85,7 +89,7 @@ class GNSSOdometry:
     def compute_fitted_heading(self):
         """Compute heading using line fitting and correct it based on robot motion."""
         if len(self.fit_points) < 2:
-            self.fit_points = []
+            # self.fit_points = []
             return None, self.initial_covariance
 
         # Extract x and y coordinates
@@ -123,14 +127,14 @@ class GNSSOdometry:
 
         # Wrap heading to [-pi, pi]
         fitted_heading = (fitted_heading + math.pi) % (2 * math.pi) - math.pi
-        self.fit_points = []
+        # self.fit_points = []
 
         return fitted_heading, covariance
 
     def compute_odom_from_gnss(self, fix_data):
         print("Fit point list len: {}".format(len(self.fit_points)))
         if self.prev_fix is not None and self.prev_cmd is not None:
-            if self.prev_cmd.linear.x >= self.velocity_threshold:
+            if self.prev_cmd.linear.x >= self.velocity_threshold: 
                 heading_, _, distance = self.geod.inv( self.prev_fix.longitude, self.prev_fix.latitude, fix_data.longitude, fix_data.latitude)
                 heading = None
                 if distance >= self.distance_threshold:
@@ -172,27 +176,24 @@ class GNSSOdometry:
     def compute_odom_from_odometry(self, odom_data):
         print("Fit point list len: {}".format(len(self.fit_points)))
         if self.prev_odom is not None and self.prev_cmd is not None:
-            
-            if self.prev_cmd.linear.x >= self.velocity_threshold:
-                
+            if abs(self.prev_cmd.linear.x) >= self.velocity_threshold:
                 # Compute distance moved
                 dx = odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x
                 dy = odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y
                 distance = math.sqrt(dx**2 + dy**2)
                 heading = None
-                if (distance >= self.distance_threshold):
-                    
+
+                current_time = rospy.get_time()
+                if (distance >= self.distance_threshold): #or (current_time-self.last_published_time > self.timeout):
                     if (self.use_fitted_heading):
                         self.fit_points.append((odom_data.pose.pose.position.x, odom_data.pose.pose.position.y))
-                        if len(self.fit_points) > self.num_fit_points:
+                        if len(self.fit_points) >= self.num_fit_points:
                             heading, covariance = self.compute_fitted_heading()
-
                     else:
                         heading = math.atan2(dy, dx)
                         covariance = self.initial_covariance
                     
                     if heading!=None :
-                        
                         print("Heading: {} | Cov: {}".format(heading,covariance))
                         q = Quaternion.from_euler(0.0, 0.0, heading+self.heading_offset)
                         
@@ -204,7 +205,9 @@ class GNSSOdometry:
                         
                         self.odom_pub.publish(odom_data)
                 else:
-                    self.fit_points = []
+                    #TODO: A time-related criterion should clear the deque as well
+                    self.last_published_time = rospy.get_time()
+                    self.fit_points.clear()
 
         self.prev_odom = odom_data
 
