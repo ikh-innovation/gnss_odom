@@ -1,1 +1,4 @@
 pyproj
+numpy
+collections
+math
