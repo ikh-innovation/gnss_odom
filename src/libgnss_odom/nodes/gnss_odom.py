@@ -86,13 +86,13 @@ class GNSSOdometry:
             rospy.Subscriber(
                 rospy.get_param('~odom_topic', 'odometry/data'),
                 Odometry,
-                self.compute_odom_from_odometry
+                self.odom_callback
             )
         else:
             rospy.Subscriber(
                 rospy.get_param('~fix_topic', 'gnss/fix'),
                 NavSatFix,
-                self.compute_odom_from_gnss
+                self.gnss_callback
             )
 
     def store_cmd_vel(self, cmd_data):
@@ -169,17 +169,30 @@ class GNSSOdometry:
                             odom_data.pose.pose.orientation.z = q.z
                             odom_data.pose.pose.orientation.w = q.w
                             
-                            if len(self.published_headings) >= self.published_headings_length:
-                                # Filtering out spikes
-                                if abs(np.mean(self.published_headings) - (heading + self.heading_offset)) < self.heading_diff_publish_ths:
-                                    self.odom_pub.publish(odom_data)
-                            self.published_headings.append(heading + self.heading_offset)
+                            return odom_data, heading
                         
                 else:
                     self.last_published_time = rospy.get_time()
                     self.fit_points.clear()
 
         self.prev_odom = odom_data
+        return None, None
+
+    def publish_odom(self, odom_data, heading):
+        if odom_data is not None and heading is not None:
+            if len(self.published_headings) >= self.published_headings_length:
+                # Filtering out spikes
+                if abs(np.mean(self.published_headings) - (heading + self.heading_offset)) < self.heading_diff_publish_ths:
+                    self.odom_pub.publish(odom_data)
+            self.published_headings.append(heading + self.heading_offset)
+
+    def odom_callback(self, odom_data):
+        odom_data, heading = self.compute_odom_from_odometry(odom_data)
+        self.publish_odom(odom_data, heading)
+
+    def gnss_callback(self, fix_data):
+        # Placeholder for GNSS callback logic
+        pass
 
     def run(self):
         # Keep the node running
