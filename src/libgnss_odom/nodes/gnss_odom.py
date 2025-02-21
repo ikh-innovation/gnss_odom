@@ -38,6 +38,7 @@ class GNSSOdometry:
         
         # Retrieve parameters from the parameter server
         self.use_odometry = rospy.get_param('~use_odometry', False)
+        self.use_velocity_criteria = rospy.get_param('~use_velocity_criteria', True)
         self.velocity_linear_threshold = rospy.get_param('~velocity_linear_threshold', 0.03)
         self.velocity_angular_threshold = rospy.get_param('~velocity_angular_threshold', 0.5)
         self.lower_distance_threshold = rospy.get_param('~lower_distance_threshold', 0.05)
@@ -145,7 +146,7 @@ class GNSSOdometry:
 
     def compute_odom_from_odometry(self, odom_data):
         if self.prev_odom is not None and self.prev_cmd is not None:
-            if abs(self.prev_cmd.linear.x) >= self.velocity_linear_threshold and abs(self.prev_cmd.angular.z) <= self.velocity_angular_threshold:
+            if not self.use_velocity_criteria or (abs(self.prev_cmd.linear.x) >= self.velocity_linear_threshold and abs(self.prev_cmd.angular.z) <= self.velocity_angular_threshold):
                 # Compute distance moved
                 dx = odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x
                 dy = odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y
