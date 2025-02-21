@@ -6,7 +6,9 @@
     <param name="odom_topic" value="/aristos/odometry/gps/onlyRTK"/>
     <param name="odom_pub_topic" value="gnss_heading/odom" />
     <param name="use_odometry" value="true"/>
-    <param name="velocity_threshold" value="0.2"/>
+    <param name="velocity_linear_threshold" value="0.2"/>
+    <param name="velocity_angular_threshold" value="0.5"/>
+    
     <param name="lower_distance_threshold" value="0.05"/>
     <param name="upper_distance_threshold" value="0.2"/>
     <param name="heading_offset" value="0.0"/>
