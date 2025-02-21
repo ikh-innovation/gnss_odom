@@ -2,9 +2,9 @@ import rospy
 import math
 import numpy as np
 from pyproj import Geod
-from sensor_msgs.msg import NavSatFix
+from sensor_msgs.msg import NavSatFix, Imu
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Quaternion
 from collections import deque
 
 class Quaternion:
@@ -30,7 +30,16 @@ class Quaternion:
             y=sy * cp * sr + cy * sp * cr,
             z=sy * cp * cr - cy * sp * sr
         )
+    
+    def to_euler(self):
+        # Convert Quaternion to Euler angles
+        roll = math.atan2(2 * (self.w * self.x + self.y * self.z), 1 - 2 * (self.x**2 + self.y**2))
+        pitch = math.asin(2 * (self.w * self.y - self.z * self.x))
+        yaw = math.atan2(2 * (self.w * self.z + self.x * self.y), 1 - 2 * (self.y**2 + self.z**2))
 
+        return roll, pitch, yaw
+    
+    
 class GNSSOdometry:
     def __init__(self):
         # Initialize the ROS node
@@ -46,7 +55,10 @@ class GNSSOdometry:
         self.initial_covariance = rospy.get_param('~initial_covariance', 0.1)
         self.heading_offset = rospy.get_param('~heading_offset', 0.0)
         self.heading_diff_publish_ths = rospy.get_param('~heading_diff_publish_ths', 0.34)
+        self.debug_imu_data = rospy.get_param('~debug_imu_data', False)
         self.gnss_ellipsoid = rospy.get_param('~gnss_ellipsoid', 'WGS84')
+        # this parameter is used to enable/disable debug prints
+        self.debug_prints = rospy.get_param('~debug_prints', False)
         self.prev_fix = None
         self.prev_cmd = None
         self.prev_odom = None
@@ -96,6 +108,18 @@ class GNSSOdometry:
                 NavSatFix,
                 self.gnss_callback
             )
+
+        if self.debug_imu_data:
+            rospy.Subscriber(
+                rospy.get_param('~imu_topic', 'imu/data'),
+                Imu,
+                self.imu_callback
+            )
+
+    def imu_callback(self, imu_data):
+        # Placeholder for IMU callback logic
+        quat = Quaternion(imu_data.orientation.w, imu_data.orientation.x, imu_data.orientation.y, imu_data.orientation.z)
+        self.imu_yaw = quat.to_euler()[2]
 
     def store_cmd_vel(self, cmd_data):
         # Store the latest command velocity
@@ -147,6 +171,8 @@ class GNSSOdometry:
     def compute_odom_from_odometry(self, odom_data):
         if self.prev_odom is not None and self.prev_cmd is not None:
             if not self.use_velocity_criteria or (abs(self.prev_cmd.linear.x) >= self.velocity_linear_threshold and abs(self.prev_cmd.angular.z) <= self.velocity_angular_threshold):
+                if self.debug_prints:
+                    print(" (0) Computing Odom - Linear: {:.4f} and Angular: {:.4f} ".format(self.prev_cmd.linear.x, self.prev_cmd.angular.z))
                 # Compute distance moved
                 dx = odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x
                 dy = odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y
@@ -154,6 +180,8 @@ class GNSSOdometry:
                 heading = None
 
                 if self.lower_distance_threshold <= distance <= self.upper_distance_threshold:
+                    if self.debug_prints:
+                        print(" (1) Computing Heading - Distance: {:.4f} ".format(distance))
                     if self.use_fitted_heading:
                         self.fit_points.append((odom_data.pose.pose.position.x, odom_data.pose.pose.position.y))
                         if len(self.fit_points) >= self.num_fit_points:
@@ -163,6 +191,8 @@ class GNSSOdometry:
                         covariance = self.initial_covariance
                     
                     if heading is not None:
+                        if self.debug_prints:
+                            print(" (2) Computing Heading - Heading: {:.3f} | Covariance: {:.7f} ".format(heading*180.0/math.pi, covariance))
                         q = Quaternion.from_euler(0.0, 0.0, heading + self.heading_offset)
                         
                         odom_data.pose.pose.orientation.x = q.x
@@ -170,30 +200,45 @@ class GNSSOdometry:
                         odom_data.pose.pose.orientation.z = q.z
                         odom_data.pose.pose.orientation.w = q.w
                         
+                        # print covariance value with 5 decimal points
                         # Add computed covariance to odom_data.pose.covariance
-                        odom_data.pose.covariance[0] = covariance
-                        odom_data.pose.covariance[7] = covariance
-                        odom_data.pose.covariance[14] = covariance
-                        odom_data.pose.covariance[21] = covariance
-                        odom_data.pose.covariance[28] = covariance
-                        odom_data.pose.covariance[35] = covariance
-                        
+                        odom_data.pose.covariance = [covariance] * 36
+
                         return odom_data, heading
                     
                 elif distance < self.lower_distance_threshold:
+                    if self.debug_prints:
+                        print(" (1) Not added to the List - Distance: {:.4f} ".format(distance))
                     pass
                 else:
+                    if self.debug_prints:
+                        print(" (1) Exceeded Clear List - Distance: {:.4f} ".format(distance))
+                        print("====== CLEAR =======")
                     self.last_published_time = rospy.get_time()
                     self.fit_points.clear()
+            else:
+                if self.debug_prints:
+                    print(" (0) -- Not -- Computing Odom - Linear: {:.4f} and Angular: {:.4f} ".format(self.prev_cmd.linear.x, self.prev_cmd.angular.z))
+                pass
 
         self.prev_odom = odom_data
         return None, None
 
     def publish_odom(self, odom_data, heading):
         if odom_data is not None and heading is not None:
+            if self.debug_prints:
+                print(" (3) Length of published headings list: {} ".format(len(self.published_headings)))
             if len(self.published_headings) >= self.published_headings_length:
                 # Filtering out spikes
                 if abs(np.mean(self.published_headings) - (heading + self.heading_offset)) < self.heading_diff_publish_ths:
+                    if self.debug_prints:
+                        print(" >>> Publishing - Heading: {:.3f} and Covariance: {:.7f} ".format((heading+self.heading_offset)*180.0/math.pi, odom_data.pose.covariance[0]))
+                        print(" >>> Velocity: {:.3f} | Angular Velocity: {:.3f} ".format(self.prev_cmd.linear.x, self.prev_cmd.angular.z))
+                        if(self.debug_imu_data):
+                            # Print IMU heading
+                            print(" >>> IMU Heading: {:.3f} ".format(self.imu_yaw*180.0/math.pi))
+                            # Print IMU GNSS heading difference
+                            print(" >>> IMU GNSS Heading Difference: {:.3f} ".format((self.imu_yaw - (heading+self.heading_offset))*180.0/math.pi))
                     self.odom_pub.publish(odom_data)
             self.published_headings.append(heading + self.heading_offset)
 
