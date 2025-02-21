@@ -169,6 +169,14 @@ class GNSSOdometry:
                             odom_data.pose.pose.orientation.z = q.z
                             odom_data.pose.pose.orientation.w = q.w
                             
+                            # Add computed covariance to odom_data.pose.covariance
+                            odom_data.pose.covariance[0] = covariance
+                            odom_data.pose.covariance[7] = covariance
+                            odom_data.pose.covariance[14] = covariance
+                            odom_data.pose.covariance[21] = covariance
+                            odom_data.pose.covariance[28] = covariance
+                            odom_data.pose.covariance[35] = covariance
+                            
                             return odom_data, heading
                         
                 else:
