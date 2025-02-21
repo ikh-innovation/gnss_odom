@@ -38,7 +38,8 @@ class GNSSOdometry:
         
         # Retrieve parameters from the parameter server
         self.use_odometry = rospy.get_param('~use_odometry', False)
-        self.velocity_threshold = rospy.get_param('~velocity_threshold', 0.03)
+        self.velocity_linear_threshold = rospy.get_param('~velocity_linear_threshold', 0.03)
+        self.velocity_angular_threshold = rospy.get_param('~velocity_angular_threshold', 0.5)
         self.lower_distance_threshold = rospy.get_param('~lower_distance_threshold', 0.05)
         self.upper_distance_threshold = rospy.get_param('~upper_distance_threshold', 0.2)
         self.initial_covariance = rospy.get_param('~initial_covariance', 0.1)
@@ -105,8 +106,9 @@ class GNSSOdometry:
             return None, self.initial_covariance
 
         # Extract x and y coordinates
-        x_vals = np.array([p[0] for p in self.fit_points])
-        y_vals = np.array([p[1] for p in self.fit_points])
+        fit_points_array = np.array(self.fit_points)
+        x_vals = fit_points_array[:, 0]
+        y_vals = fit_points_array[:, 1]
 
         # Least Squares Fitting
         A = np.vstack([x_vals, np.ones(len(x_vals))]).T
@@ -143,42 +145,42 @@ class GNSSOdometry:
 
     def compute_odom_from_odometry(self, odom_data):
         if self.prev_odom is not None and self.prev_cmd is not None:
-            if abs(self.prev_cmd.linear.x) >= self.velocity_threshold:
+            if abs(self.prev_cmd.linear.x) >= self.velocity_linear_threshold and abs(self.prev_cmd.angular.z) <= self.velocity_angular_threshold:
                 # Compute distance moved
                 dx = odom_data.pose.pose.position.x - self.prev_odom.pose.pose.position.x
                 dy = odom_data.pose.pose.position.y - self.prev_odom.pose.pose.position.y
                 distance = math.sqrt(dx**2 + dy**2)
                 heading = None
 
-                current_time = rospy.get_time()
-                if distance <= self.upper_distance_threshold:
-                    if distance >= self.lower_distance_threshold:
-                        if self.use_fitted_heading:
-                            self.fit_points.append((odom_data.pose.pose.position.x, odom_data.pose.pose.position.y))
-                            if len(self.fit_points) >= self.num_fit_points:
-                                heading, covariance = self.compute_fitted_heading()
-                        else:
-                            heading = math.atan2(dy, dx)
-                            covariance = self.initial_covariance
+                if self.lower_distance_threshold <= distance <= self.upper_distance_threshold:
+                    if self.use_fitted_heading:
+                        self.fit_points.append((odom_data.pose.pose.position.x, odom_data.pose.pose.position.y))
+                        if len(self.fit_points) >= self.num_fit_points:
+                            heading, covariance = self.compute_fitted_heading()
+                    else:
+                        heading = math.atan2(dy, dx)
+                        covariance = self.initial_covariance
+                    
+                    if heading is not None:
+                        q = Quaternion.from_euler(0.0, 0.0, heading + self.heading_offset)
                         
-                        if heading is not None:
-                            q = Quaternion.from_euler(0.0, 0.0, heading + self.heading_offset)
-                            
-                            odom_data.pose.pose.orientation.x = q.x
-                            odom_data.pose.pose.orientation.y = q.y
-                            odom_data.pose.pose.orientation.z = q.z
-                            odom_data.pose.pose.orientation.w = q.w
-                            
-                            # Add computed covariance to odom_data.pose.covariance
-                            odom_data.pose.covariance[0] = covariance
-                            odom_data.pose.covariance[7] = covariance
-                            odom_data.pose.covariance[14] = covariance
-                            odom_data.pose.covariance[21] = covariance
-                            odom_data.pose.covariance[28] = covariance
-                            odom_data.pose.covariance[35] = covariance
-                            
-                            return odom_data, heading
+                        odom_data.pose.pose.orientation.x = q.x
+                        odom_data.pose.pose.orientation.y = q.y
+                        odom_data.pose.pose.orientation.z = q.z
+                        odom_data.pose.pose.orientation.w = q.w
                         
+                        # Add computed covariance to odom_data.pose.covariance
+                        odom_data.pose.covariance[0] = covariance
+                        odom_data.pose.covariance[7] = covariance
+                        odom_data.pose.covariance[14] = covariance
+                        odom_data.pose.covariance[21] = covariance
+                        odom_data.pose.covariance[28] = covariance
+                        odom_data.pose.covariance[35] = covariance
+                        
+                        return odom_data, heading
+                    
+                elif distance < self.lower_distance_threshold:
+                    pass
                 else:
                     self.last_published_time = rospy.get_time()
                     self.fit_points.clear()
