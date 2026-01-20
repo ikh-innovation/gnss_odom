@@ -14,6 +14,11 @@ endif()
 catkin_python_setup()
 catkin_package()
 
+
+execute_process(
+  COMMAND ${CMAKE_COMMAND} -E env python2 -m pip install -r ${CMAKE_CURRENT_SOURCE_DIR}/requirements.txt
+)
+
 install(PROGRAMS
    scripts/gnss_odom
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

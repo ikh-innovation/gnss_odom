@@ -6,11 +6,13 @@ This ROS package computes odometry heading for a robot using GNSS (Global Naviga
 
 ## **Table of Contents**
 1. [Overview](#overview)
-2. [Dependencies](#dependencies)
-3. [Installation](#installation)
-4. [Usage](#usage)
-5. [Parameters](#parameters)
-6. [Launch Files](#launch-files)
+2. [Features](#features)
+3. [Calculation](#calculation)
+3. [Dependencies](#dependencies)
+4. [Installation](#installation)
+5. [Usage](#usage)
+6. [Parameters](#parameters)
+7. [Launch Files](#launch-files)
 
 
 ---
@@ -25,6 +27,28 @@ The package publishes the computed odometry as an `Odometry` message, which can 
 
 ---
 
+## **Features**
+- Computes heading from GNSS fixes or odometry data.
+- Uses least-squares fitting for a smoother heading estimate.
+- Corrects heading direction based on velocity sign.
+- Publishes odometry messages with orientation information.
+---
+## **Calculation**
+
+The node supports two methods for heading calculation:
+
+1. **Direct GNSS Bearing**
+   - Uses `pyproj.Geod.inv()` to get the GNSS bearing.
+   - Converts it to radians and applies an optional offset.
+
+2. **Least-Squares Line Fitting**
+   - Stores recent GNSS/odometry positions.
+   - Fits a line using `np.linalg.lstsq()`.
+   - Computes the heading angle from the line slope.
+   - Corrects direction based on movement and velocity.
+
+---
+
 ## **Dependencies**
 
 ### ROS Packages
@@ -35,7 +59,7 @@ The package publishes the computed odometry as an `Odometry` message, which can 
 
 ### Python Libraries
 - `pyproj` (for geodetic calculations)
-- `math` (for basic mathematical operations)
+- `numpy` (for basic mathematical operations)
 
 ---
 
@@ -52,10 +76,9 @@ The package publishes the computed odometry as an `Odometry` message, which can 
    ```bash
    sudo apt-get install ros-melodic-sensor-msgs ros-melodic-nav-msgs ros-melodic-geometry-msgs
    ```
-
    Install the `pyproj` Python library:
    ```bash
-   pip install pyproj
+   pip install pyproj numpy
    ```
 
 3. **Build the Package**:
@@ -87,18 +110,33 @@ roslaunch gnss_odom gnss_odom.launch
 
 The following parameters can be configured for the `gnss_odom` node:
 
-| Parameter               | Default Value                          | Description                                                                 |
-|-------------------------|----------------------------------------|-----------------------------------------------------------------------------|
-| `~use_odometry`         | `False`                                | If `True`, use wheel odometry data instead of GNSS data.                    |
-| `~velocity_threshold`   | `0.03`                                 | Minimum linear velocity (m/s) to compute odometry.                          |
-| `~distance_threshold`   | `0.5`                                  | Minimum distance (m) between consecutive fixes to compute odometry.         |
-| `~initial_covariance`   | `0.1`                                  | Initial covariance value for the odometry message.                          |
-| `~cmd_vel_topic`        | `husky_velocity_controller/cmd_vel`    | Topic for velocity commands (`Twist` messages).                             |
-| `~fix_topic`            | `gnss/fix`                             | Topic for GNSS fixes (`NavSatFix` messages).                                |
-| `~odom_topic`           | `odometry/data`                        | Topic for wheel odometry data (`Odometry` messages).                        |
-| `~odom_pub_topic`       | `gnss/odom`                            | Topic to publish computed odometry (`Odometry` messages).                   |
+| Parameter Name        | Description | Default Value |
+|----------------------|-------------|--------------|
+| `cmd_vel_topic`      | Command velocity topic | `/aristos/wheel/cmd_vel` |
+| `fix_topic`          | GNSS fix topic | `/aristos/filter/positionlla/gnss` |
+| `odom_topic`         | Odometry input topic | `/aristos/odometry/gps/onlyRTK` |
+| `odom_pub_topic`     | Published odometry topic | `gnss_heading/odom` |
+| `use_odometry`       | Use odometry instead of GNSS for heading | `true` |
+| `velocity_threshold` | Minimum velocity for heading update | `0.2` m/s |
+| `distance_threshold` | Minimum distance for heading update | `0.05` m |
+| `heading_offset`     | Additional heading offset (radians) | `0.0` |
+| `use_fitted_heading` | Enable least-squares heading estimation | `true` |
+| `num_fit_points`     | Number of past points used for fitting | `4` |
+| `gnss_ellipsoid`     | Ellipsoid model used by pyproj | `WGS84` |
 
 ---
+
+### **Published Topics**
+- **`gnss_heading/odom`** (`nav_msgs/Odometry`)  
+  Publishes computed odometry data with orientation.
+
+### **Subscribed Topics**
+- **`/aristos/wheel/cmd_vel`** (`geometry_msgs/Twist`)  
+  Stores velocity data for heading correction.
+- **`/aristos/filter/positionlla/gnss`** (`sensor_msgs/NavSatFix`)  
+  Processes GNSS data to compute heading.
+- **`/aristos/odometry/gps/onlyRTK`** (`nav_msgs/Odometry`)  
+  Processes odometry data when enabled.
 
 ## **Launch Files**
 
@@ -110,16 +148,23 @@ Launches the `gnss_odom` node with default parameters. You can override paramete
 Example:
 ```xml
 <launch>
+
   <node name="gnss_odom_node" pkg="gnss_odom" type="gnss_odom" output="screen">
     <param name="cmd_vel_topic" value="/aristos/wheel/cmd_vel" />
     <param name="fix_topic" value="/aristos/filter/positionlla/gnss" />
     <param name="odom_topic" value="/aristos/odometry/gps/onlyRTK"/>
     <param name="odom_pub_topic" value="gnss_heading/odom" />
     <param name="use_odometry" value="true"/>
-    <param name="velocity_threshold" value="0.1"/>
-    <param name="distance_threshold" value="0.075"/>
+    <param name="velocity_threshold" value="0.2"/>
+    <param name="distance_threshold" value="0.05"/>
     <param name="heading_offset" value="0.0"/>
+    <param name="use_fitted_heading" value="true"/>
+    <param name="num_fit_points" value="4"/>
+    <param name="gnss_ellipsoid" value="WGS84"/> <!--pyproj supported ellipsoids-->
   </node>
+
 </launch>
 ```
+
+
 

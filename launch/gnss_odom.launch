@@ -6,9 +6,24 @@
     <param name="odom_topic" value="/aristos/odometry/gps/onlyRTK"/>
     <param name="odom_pub_topic" value="gnss_heading/odom" />
     <param name="use_odometry" value="true"/>
-    <param name="velocity_threshold" value="0.1"/>
-    <param name="distance_threshold" value="0.075"/>
+    <param name="debug_imu_data" value="true"/>
+    <param name="debug_prints" value="false"/>
+    
+    
+    <remap from="imu/data" to="/aristos/imu/data/relative"/>
+    
+
+    <param name="use_velocity_criteria" value="true"/>
+    <param name="velocity_linear_threshold" value="0.2"/>
+    <param name="velocity_angular_threshold" value="0.5"/>
+    
+    <param name="lower_distance_threshold" value="0.03"/>
+    <param name="upper_distance_threshold" value="0.5"/>
     <param name="heading_offset" value="0.0"/>
+    <param name="heading_diff_publish_ths" value="0.34"/>
+    <param name="use_fitted_heading" value="true"/>
+    <param name="num_fit_points" value="4"/>
+    <param name="gnss_ellipsoid" value="WGS84"/> <!--pyproj supported ellipsoids-->
   </node>
 
 </launch>
